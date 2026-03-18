@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import time
 from html import escape
 
@@ -660,9 +661,9 @@ class SimulatorApp(QMainWindow):
         rows: dict[str, tuple[QDoubleSpinBox, QComboBox, QCheckBox, float]],
         max_test_duration: float,
         changes: list[str],
-    ) -> bool:
+    ) -> tuple[bool, SimulationConfig]:
         if cfg.test_duration <= max_test_duration + EPSILON:
-            return True
+            return True, cfg
 
         reduce_needed = cfg.test_duration - max_test_duration
         for field_name in (
@@ -678,12 +679,12 @@ class SimulatorApp(QMainWindow):
             reduced = current_value - new_value
             if reduced > EPSILON:
                 self._set_time_seconds(spin, combo, new_value)
-                setattr(cfg, field_name, new_value)
+                cfg = dataclasses.replace(cfg, **{field_name: new_value})
                 reduce_needed -= reduced
                 changes.append(f"{field_name.replace('_', ' ')} {new_value:.1f}s")
             if reduce_needed <= EPSILON:
                 break
-        return reduce_needed <= EPSILON
+        return reduce_needed <= EPSILON, cfg
 
     def _reduce_transport_fields(
         self,
@@ -691,10 +692,10 @@ class SimulatorApp(QMainWindow):
         rows: dict[str, tuple[QDoubleSpinBox, QComboBox, QCheckBox, float]],
         max_cycle_time: float,
         changes: list[str],
-    ) -> bool:
+    ) -> tuple[bool, SimulationConfig]:
         current_cycle = self._estimate_rgv_cycle_time(cfg)
         if current_cycle <= max_cycle_time + EPSILON:
-            return True
+            return True, cfg
 
         move_coeff = 20.0 + 6.0 * SimulationEngine.GATE_CLEARANCE
         transport_fields = (
@@ -714,12 +715,12 @@ class SimulatorApp(QMainWindow):
             applied_reduction = min(needed_reduction, max_reduction)
             new_value = current_value - applied_reduction / coeff
             self._set_time_seconds(spin, combo, new_value)
-            setattr(cfg, field_name, new_value)
+            cfg = dataclasses.replace(cfg, **{field_name: new_value})
             current_cycle = self._estimate_rgv_cycle_time(cfg)
             changes.append(f"{field_name.replace('_', ' ')} {new_value:.2f}s")
             if current_cycle <= max_cycle_time + EPSILON:
                 break
-        return current_cycle <= max_cycle_time + EPSILON
+        return current_cycle <= max_cycle_time + EPSILON, cfg
 
     def _refine_solution_with_verification(
         self,
@@ -727,14 +728,14 @@ class SimulatorApp(QMainWindow):
         rows: dict[str, tuple[QDoubleSpinBox, QComboBox, QCheckBox, float]],
         target_tput: float,
         changes: list[str],
-    ) -> tuple[bool, float]:
+    ) -> tuple[bool, float, SimulationConfig]:
         verified_tput = self._verify_throughput(cfg, target_tput)
         for _ in range(4):
             if verified_tput >= target_tput * 0.95:
-                return True, verified_tput
+                return True, verified_tput, cfg
 
             ratio = max(0.1, verified_tput / target_tput)
-            previous_cfg = SimulationConfig(**cfg.__dict__)
+            previous_cfg = dataclasses.replace(cfg)
             desired_test_duration = max(
                 rows["steady_state_duration"][3]
                 + rows["startup_ramp_duration"][3]
@@ -744,20 +745,22 @@ class SimulatorApp(QMainWindow):
             desired_cycle_time = max(0.0, self._estimate_rgv_cycle_time(cfg) * ratio)
             changed = False
 
-            if self._reduce_duration_fields(cfg, rows, desired_test_duration, changes):
+            feasible, cfg = self._reduce_duration_fields(cfg, rows, desired_test_duration, changes)
+            if feasible:
                 changed = changed or cfg.test_duration < previous_cfg.test_duration - EPSILON
-            if self._reduce_transport_fields(cfg, rows, desired_cycle_time, changes):
+            feasible, cfg = self._reduce_transport_fields(cfg, rows, desired_cycle_time, changes)
+            if feasible:
                 changed = changed or (
                     self._estimate_rgv_cycle_time(cfg)
                     < self._estimate_rgv_cycle_time(previous_cfg) - EPSILON
                 )
 
             if not changed:
-                return False, verified_tput
+                return False, verified_tput, cfg
 
             verified_tput = self._verify_throughput(cfg, target_tput)
 
-        return verified_tput >= target_tput * 0.95, verified_tput
+        return verified_tput >= target_tput * 0.95, verified_tput, cfg
 
     def _solve_for_target(self) -> None:
         self._solver_running = True
@@ -781,11 +784,12 @@ class SimulatorApp(QMainWindow):
                     return
             elif abs(cfg.arrival_interval - required_arrival_interval) > EPSILON:
                 self._set_time_seconds(arrival_spin, arrival_combo, required_arrival_interval)
-                cfg.arrival_interval = required_arrival_interval
+                cfg = dataclasses.replace(cfg, arrival_interval=required_arrival_interval)
                 changes.append(f"arrival {required_arrival_interval:.1f}s")
 
             required_test_duration = cfg.num_stations * 3600.0 / target_tput
-            if not self._reduce_duration_fields(cfg, rows, required_test_duration, changes):
+            feasible, cfg = self._reduce_duration_fields(cfg, rows, required_test_duration, changes)
+            if not feasible:
                 self._set_solver_status(
                     f"Infeasible: station capacity is {self._station_capacity(cfg):.2f}/hr "
                     f"with the locked test durations.",
@@ -794,7 +798,8 @@ class SimulatorApp(QMainWindow):
                 return
 
             required_cycle_time = 3600.0 / target_tput
-            if not self._reduce_transport_fields(cfg, rows, required_cycle_time, changes):
+            feasible, cfg = self._reduce_transport_fields(cfg, rows, required_cycle_time, changes)
+            if not feasible:
                 self._set_solver_status(
                     f"Infeasible: estimated RGV capacity is {self._estimate_rgv_capacity(cfg):.2f}/hr "
                     f"with the locked transport timings.",
@@ -807,7 +812,7 @@ class SimulatorApp(QMainWindow):
             station_cap = self._station_capacity(cfg)
             rgv_cap = self._estimate_rgv_capacity(cfg)
             analytical_limit = min(arrival_cap, station_cap, rgv_cap)
-            solved, verified_tput = self._refine_solution_with_verification(
+            solved, verified_tput, cfg = self._refine_solution_with_verification(
                 cfg,
                 rows,
                 target_tput,

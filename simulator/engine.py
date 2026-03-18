@@ -98,9 +98,6 @@ class SimulationEngine:
 
         self._checkpoint_power()
 
-    def current_power(self) -> float:
-        return self.current_station_power
-
     @property
     def current_station_power(self) -> float:
         return sum(
