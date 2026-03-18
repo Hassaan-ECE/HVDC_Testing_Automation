@@ -761,10 +761,12 @@ class SimulatorApp(QMainWindow):
 
     def _solve_for_target(self) -> None:
         self._solver_running = True
+        rows = self._time_rows()
+        spin_snapshot = {key: (spin.value(), combo.currentIndex()) for key, (spin, combo, _, _) in rows.items()}
+        solved = False
         try:
             target_tput = max(0.1, self.sp_target_tput.value())
             cfg = self._build_cfg()
-            rows = self._time_rows()
             changes: list[str] = []
 
             required_arrival_interval = 3600.0 / target_tput
@@ -828,8 +830,14 @@ class SimulatorApp(QMainWindow):
                 f"Verified tail-rate {verified_tput:.2f}/hr. {summary}.",
                 status_color,
             )
+            solved = True
             self._reset()
         finally:
+            if not solved:
+                for key, (spin, combo, _, _) in rows.items():
+                    saved_value, saved_combo_index = spin_snapshot[key]
+                    combo.setCurrentIndex(saved_combo_index)
+                    spin.setValue(saved_value)
             self._solver_running = False
 
     def _start(self) -> None:

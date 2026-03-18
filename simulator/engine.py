@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from collections import deque
 
 import simpy
+
+logger = logging.getLogger(__name__)
 
 from simulator.config import (
     EPSILON,
@@ -80,7 +83,7 @@ class SimulationEngine:
         self.env.process(self._power_monitor_loop())
 
     def log(self, message: str) -> None:
-        del message
+        logger.debug("[t=%.1f] %s", self.env.now, message)
 
     def advance(self, dt: float) -> None:
         dt = max(0.0, dt)
@@ -94,15 +97,6 @@ class SimulationEngine:
             self.env.step()
 
         self._checkpoint_power()
-
-    @property
-    def current_rgv_power(self) -> float:
-        # Retained for future use. Power reporting excludes all non-test loads.
-        return (
-            self.config.rgv_moving_power
-            if self.rgv_is_moving
-            else self.config.rgv_idle_power
-        )
 
     def current_power(self) -> float:
         return self.current_station_power

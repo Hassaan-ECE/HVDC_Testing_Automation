@@ -17,8 +17,24 @@ class SimulationConfig:
     gate_cycle_time: float = 4.0
     peak_station_power: float = 1000.0
     steady_state_power_pct: float = 10.0
-    rgv_moving_power: float = 35.0
-    rgv_idle_power: float = 5.0
+
+    def __post_init__(self) -> None:
+        if self.arrival_interval <= 0:
+            raise ValueError(f"arrival_interval must be > 0, got {self.arrival_interval}")
+        if self.num_stations < 1:
+            raise ValueError(f"num_stations must be >= 1, got {self.num_stations}")
+        if self.startup_ramp_duration < 0:
+            raise ValueError(f"startup_ramp_duration must be >= 0, got {self.startup_ramp_duration}")
+        if self.steady_state_duration < 0:
+            raise ValueError(f"steady_state_duration must be >= 0, got {self.steady_state_duration}")
+        if self.shutdown_ramp_duration < 0:
+            raise ValueError(f"shutdown_ramp_duration must be >= 0, got {self.shutdown_ramp_duration}")
+        if self.move_time_per_station <= 0:
+            raise ValueError(f"move_time_per_station must be > 0, got {self.move_time_per_station}")
+        if self.peak_station_power < 0:
+            raise ValueError(f"peak_station_power must be >= 0, got {self.peak_station_power}")
+        if not (0.0 <= self.steady_state_power_pct <= 100.0):
+            raise ValueError(f"steady_state_power_pct must be in [0, 100], got {self.steady_state_power_pct}")
 
     @property
     def test_duration(self) -> float:

@@ -1,2 +1,2 @@
 simpy==4.1.1
-PySide6
+PySide6==6.10.2
