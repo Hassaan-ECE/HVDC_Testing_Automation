@@ -3,6 +3,7 @@
 This project is a PySide6-based simulator for a 16-station server test line served by a single RGV. It is intended for power-demand analysis, not hardware control.
 
 The simulation engine uses `SimPy` for event scheduling and PySide6 for the desktop UI.
+The codebase is organized as a small `simulator/` package with separate engine, models, theme, and UI modules.
 
 Physical path:
 
@@ -29,11 +30,5 @@ Physical path:
 
 ```bash
 pip install -r requirements.txt
-python server_line_simulator.py
-```
-
-## Test
-
-```bash
-python -m unittest discover -s tests -v
+python main.py
 ```
